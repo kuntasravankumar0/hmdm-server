@@ -1,0 +1,790 @@
+================================================================================
+                    HEADWIND MDM - COMPLETE PROJECT DOCUMENTATION
+                    features_and_connections.txt
+================================================================================
+
+Last Updated: July 18, 2026
+Project Version: 6.36
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. PROJECT OVERVIEW
+2. SYSTEM ARCHITECTURE
+3. COMPONENT BREAKDOWN
+4. APK FEATURES & CAPABILITIES
+5. SERVER FEATURES & CAPABILITIES
+6. DATA API FEATURES
+7. CONNECTION & NETWORK SETUP
+8. WORKFLOW - APK INSTALL TO PRODUCTION
+9. APK WORKFLOW
+10. API ENDPOINTS REFERENCE
+11. DATABASE SCHEMA
+12. GOOGLE SHEETS INTEGRATION
+13. DEPLOYMENT CONFIGURATION
+14. SECURITY & PERMISSIONS
+15. TROUBLESHOOTING & FAQ
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+Headwind MDM is a Mobile Device Management (MDM) solution for Android devices.
+It consists of 4 main components:
+
+A) hmdm-android (APK) - Android MDM Agent App
+   - Package: com.hmdm.launcher
+   - Min SDK: 26 (Android 8.0+)
+   - Target SDK: 34
+   - Type: Device Owner / Device Administrator app
+   
+B) hmdm-server - Java Backend Server (Maven project)
+   - Technology: Java, REST API, PostgreSQL
+   - Port: 8080
+   - Deployed at: https://hmdm-server-qlw2.onrender.com
+
+C) hmdm-data-api - Node.js Data API Server
+   - Technology: Express.js, JWT Auth, MongoDB
+   - Deployed at: https://hmdm-data-apicallandcontact.onrender.com
+
+D) hmdm-docker - Docker Deployment Configuration
+   - Services: PostgreSQL, Certbot (SSL), HMDM Server
+   
+E) Google Apps Script - Sheets Integration
+   - URL: https://script.google.com/macros/s/AKfycbzTgOLsjh1mluJwXVgySq-zJXO6-drWr8g_JWMfZxSqMkGlHKjtvKwDVp-8z8VkQftetQ/exec
+
+================================================================================
+2. SYSTEM ARCHITECTURE
+================================================================================
+
+                    +--------------------+
+                    |   Google Sheets DB  |
+                    | (Contacts, CallLogs,|
+                    |  Enrollments, Media)|
+                    +--------+-----------+
+                             |
+                    +--------+-----------+
+                    | Google Apps Script  |
+                    | (mdm-sheets.gs)     |
+                    +--------+-----------+
+                             |
++---------+     +-----------+-----------+     +---------------+
+| Android |<--->|   hmdm-server        |<--->| hmdm-data-api |
+|  APK    |     | (Java, REST API,     |     | (Node.js,     |
+|(Device  |     |  PostgreSQL)         |     |  MongoDB, JWT)|
+| Agent)  |     | Render Deployment    |     | Render Deploy  |
++---------+     +-----------------------+     +---------------+
+
+Data Flow:
+1. APK connects to hmdm-server for:
+   - Device enrollment & configuration
+   - Remote commands (reboot, password reset, lock)
+   - Push notifications (MQTT / Long Polling)
+   - Remote logging
+   - Location tracking
+   - Application management
+
+2. hmdm-server connects to PostgreSQL for:
+   - Device data storage
+   - Configuration storage
+   - User accounts
+   - Application metadata
+
+3. hmdm-server connects to hmdm-data-api for:
+   - Contact sync data
+   - Call log sync data
+   - Notification data
+
+4. Google Apps Script provides:
+   - Direct sheet storage for device data
+   - Media file storage in Google Drive
+
+================================================================================
+3. COMPONENT BREAKDOWN
+================================================================================
+
+3a) hmdm-android APK - MODULES
+
+Package: com.hmdm.launcher
+├── ui/           - Activities & UI components
+│   ├── MainActivity.java          - Main launcher/kiosk activity
+│   ├── BaseActivity.java          - Base class with common dialogs
+│   ├── InitialSetupActivity.java  - First-time provisioning wizard
+│   ├── AdminActivity.java         - Admin settings panel
+│   ├── AdminModeRequestActivity.java - Device admin activation
+│   ├── ErrorDetailsActivity.java  - Error display screen
+│   ├── MdmChoiceSetupActivity.java - MDM setup choice screen
+│   ├── AppShortcutManager.java    - App shortcut management
+│   ├── BaseAppListAdapter.java    - App list adapter base
+│   ├── MainAppListAdapter.java    - Main app list adapter
+│   ├── BottomAppListAdapter.java  - Bottom bar app adapter
+│   └── custom/                    - Custom UI views
+│       ├── BatteryStateView.java  - Battery indicator widget
+│       ├── BlockingBar.java       - Loading/progress bar
+│       └── StatusBarUpdater.java  - Status bar management
+│
+├── server/       - API communication layer
+│   ├── ServerService.java         - Retrofit API interface
+│   ├── ServerServiceKeeper.java   - Server service management
+│   ├── ServerUrl.java             - URL parsing utilities
+│   └── UnsafeOkHttpClient.java    - SSL certificate handling
+│
+├── task/         - AsyncTask background operations
+│   ├── GetServerConfigTask.java   - Fetch server configuration
+│   ├── SendDeviceInfoTask.java    - Send device information
+│   ├── ConfirmRebootTask.java     - Confirm device reboot
+│   ├── ConfirmPasswordResetTask.java - Confirm password reset
+│   ├── GetRemoteLogConfigTask.java - Get remote log config
+│   ├── GetServerConfigTask.java   - Server config fetching
+│   └── SendDeviceInfoTask.java    - Device info upload
+│
+├── service/      - Background services
+│   ├── LocationService.java       - GPS/Network location tracking
+│   ├── StatusControlService.java  - WiFi/Bluetooth/GPS enforcement
+│   ├── PushLongPollingService.java - HTTP long polling push
+│   ├── PluginApiService.java      - IPC plugin API (AIDL)
+│   └── CheckForegroundApplicationService.java - App monitoring
+│
+├── receiver/     - Broadcast receivers
+│   ├── BootReceiver.java          - Device boot handler
+│   ├── ScreenOffReceiver.java     - Screen off listener
+│   ├── ShutdownReceiver.java      - Device shutdown handler
+│   └── SimChangedReceiver.java    - SIM card change detection
+│
+├── helper/       - Helper/utility classes
+│   ├── SettingsHelper.java        - SharedPreferences management
+│   ├── ConfigUpdater.java         - Configuration update pipeline
+│   ├── Initializer.java           - Startup initialization
+│   ├── CryptoHelper.java          - MD5/SHA1 hashing
+│   ├── CertInstaller.java         - SSL certificate installation
+│   ├── MigrationHelper.java       - Server migration handling
+│   └── CryptoHelper.java          - Cryptographic utilities
+│
+├── json/         - Data models (POJOs)
+│   ├── ServerConfig.java          - Server configuration model
+│   ├── DeviceInfo.java            - Device information model
+│   ├── ServerConfigResponse.java  - Config API response
+│   ├── Application.java           - Application model
+│   ├── ApplicationSetting.java    - App restriction settings
+│   ├── Action.java                - Server action model
+│   ├── DetailedInfo.java          - Detailed device metrics
+│   ├── DetailedInfoConfig.java    - Detailed info config
+│   ├── DetailedInfoConfigResponse.java - Detailed info response
+│   ├── PushMessage.java           - Push notification model
+│   ├── PushMessageJson.java       - Push message JSON wrapper
+│   ├── PushResponse.java          - Push response model
+│   ├── RemoteFile.java            - Remote file model
+│   ├── RemoteLogConfig.java       - Log configuration model
+│   ├── RemoteLogConfigResponse.java - Log config response
+│   ├── RemoteLogItem.java         - Log entry model
+│   ├── DeviceCreateOptions.java   - Device enrollment options
+│   ├── DeviceEnrollOptions.java   - Enrollment options
+│   ├── Download.java              - Download tracking model
+│   └── ServerResponse.java        - Generic server response
+│
+├── db/           - Local SQLite database
+│   ├── DatabaseHelper.java        - SQLiteOpenHelper (v10)
+│   ├── LocationTable.java         - Location data storage
+│   ├── LogTable.java              - Log entries storage
+│   ├── LogConfigTable.java        - Log configuration storage
+│   ├── InfoHistoryTable.java      - Device info history storage
+│   ├── RemoteFileTable.java       - Remote file tracking
+│   └── DownloadTable.java         - Download tracking
+│
+├── util/         - Utilities
+│   ├── Utils.java                 - Core MDM utilities (DPC)
+│   ├── DeviceInfoProvider.java    - Device info collection
+│   ├── InstallUtils.java          - App installation utilities
+│   ├── SystemUtils.java           - System-level operations
+│   ├── AppInfo.java               - Application info model
+│   ├── ConnectionWaiter.java      - Network connection wait
+│   ├── CrashLoopProtection.java   - Crash detection & recovery
+│   ├── LegacyUtils.java           - Legacy Android support
+│   ├── PreferenceLogger.java      - Preference change logging
+│   ├── PushNotificationMqttWrapper.java - MQTT push wrapper
+│   ├── RemoteLogger.java          - Remote log management
+│   ├── XapkUtils.java             - XAPK file installation
+│   ├── AppRestrictionUpdater.java - App restriction management
+│   └── CryptoUtils.java           - Encryption utilities
+│
+├── pro/          - Pro version stubs
+│   ├── ProUtils.java              - Pro feature stubs (free version)
+│   └── service/CheckForegroundApp... - Foreground app monitoring
+│
+├── worker/       - WorkManager background tasks
+│   ├── SendDeviceInfoWorker.java  - Periodic device info upload
+│   ├── PushNotificationWorker.java - Push notification worker
+│   ├── PushNotificationProcessor.java - Push message processor
+│   ├── RemoteLogWorker.java       - Remote log upload worker
+│   └── ScheduledAppUpdateWorker.java - App update checker
+│
+├── databinding/  - Data binding utilities
+│   └── ViewBindingUtils.java      - MVVM binding helpers
+│
+├── MQTT (org.eclipse.paho) - MQTT client library
+│   ├── MqttAndroidClient.java     - Android MQTT client
+│   ├── MqttService.java           - MQTT background service
+│   ├── MqttConnection.java        - MQTT connection handler
+│   ├── AlarmPingSender.java       - Alarm-based keepalive
+│   ├── DatabaseMessageStore.java  - Persistent message storage
+│   └── ...                        - Supporting MQTT classes
+│
+└── ANR Watchdog - ANR detection library
+    ├── ANRWatchDog.java           - ANR detection thread
+    └── ANRError.java              - ANR error model
+
+
+================================================================================
+4. APK FEATURES & CAPABILITIES
+================================================================================
+
+4.1 CORE MDM FEATURES
+  - Device Owner / Device Administrator mode
+  - Kiosk mode (single app / multi app)
+  - Remote device configuration
+  - Over-the-air (OTA) policy updates
+  - Device enrollment via QR code or manual setup
+
+4.2 DEVICE MANAGEMENT
+  - Application management (install/update/uninstall silently)
+  - Remote file management (push files to devices)
+  - System update policy control
+  - Screen timeout & brightness control
+  - Volume control
+  - Screen orientation lock
+  - Bluetooth/WiFi/GPS/Mobile Data enforcement
+  - USB storage management
+  - Safe boot prevention
+  - Factory reset protection (disabled/removed)
+  - Password policy enforcement
+
+4.3 LOCATION TRACKING
+  - GPS location updates (60-second intervals)
+  - Network-based location fallback
+  - GNSS satellite tracking (Android N+)
+  - Foreground service with location type (Android Q+)
+  - Location history stored in SQLite (24-hour retention)
+
+4.4 CONTACTS & CALL LOGS SYNC
+  - Device contacts sync to server
+  - Call log sync to server
+  - Google Sheets storage via Google Apps Script
+  - Data API for querying contacts/call logs
+
+4.5 REMOTE LOGGING
+  - Remote log configuration via server
+  - Log level filtering (VERBOSE through ERROR)
+  - Automatic log upload to server
+  - Log retention management
+  - Log configuration rules engine
+
+4.6 PUSH NOTIFICATIONS
+  - MQTT-based push notifications (Eclipse Paho)
+  - HTTP long polling fallback
+  - Push message processing for config updates
+  - Foreground MQTT service option
+
+4.7 BACKGROUND SERVICES
+  - LocationService - Continuous location tracking
+  - StatusControlService - WiFi/BT/GPS enforcement (10s intervals)
+  - PushLongPollingService - Push notification receiver
+  - PluginApiService - IPC for third-party MDM integrations
+  - ANRWatchDog - Application Not Responding detection
+
+4.8 SECURITY & COMPLIANCE
+  - Device Policy Controller (DPC) operations
+  - User restriction management (20+ restrictions)
+  - Screen capture disable
+  - VPN configuration
+  - Certificate installation (CA certs)
+  - Network security config (cleartext + user certs)
+  - Request signing for API authentication
+
+4.9 UI COMPONENTS
+  - Custom launcher with app grid
+  - Battery status indicator widget
+  - Status bar customization
+  - Background image support
+  - Multi-language support (25+ languages)
+  - Bottom app dock for kiosk mode
+
+4.10 DATA COLLECTION
+  - Device info: model, Android version, IMEI, serial, CPU
+  - Network info: IP address, WiFi status, mobile data status
+  - Battery level & charging status
+  - Installed applications list
+  - Memory usage (total/available)
+  - Custom user fields (3 customizable fields)
+
+================================================================================
+5. SERVER FEATURES & CAPABILITIES
+================================================================================
+
+5.1 hmdm-server (Java Backend)
+  - REST API for device management
+  - PostgreSQL database for persistent storage
+  - Device enrollment & authentication
+  - Configuration management
+  - Application repository
+  - Remote file repository
+  - User management (multi-tenant)
+  - Audit logging (with plugin)
+  - MQTT push notification server
+  - Historical device data
+  - Plugin architecture (deviceinfo, devicelocations, devicelog, etc.)
+
+5.2 hmdm-data-api (Node.js Backend)
+  - JWT-based authentication
+  - Contact data management (CRUD)
+  - Call log data management (CRUD)
+  - Notification management (CRUD)
+  - Device info storage & retrieval
+  - Summary/dashboard statistics
+  - Google Sheets API integration
+  - MongoDB database (via Mongoose)
+  - API key authentication for device writes
+
+
+================================================================================
+6. DATA API FEATURES
+================================================================================
+
+6.1 hmdm-data-api Endpoints:
+  POST   /api/auth/login          - User login (returns JWT)
+  GET    /api/auth/verify         - Verify JWT token
+  POST   /api/contacts            - Upload contacts
+  GET    /api/contacts            - Retrieve contacts
+  POST   /api/call-logs           - Upload call logs
+  GET    /api/call-logs           - Retrieve call logs
+  POST   /api/notifications       - Upload notifications
+  GET    /api/notifications       - Retrieve notifications
+  POST   /api/device-info         - Upload device information
+  GET    /api/device-info         - Retrieve device info
+  GET    /api/summary             - Dashboard statistics
+  GET    /health                  - Health check endpoint
+
+6.2 Google Apps Script Endpoints:
+  GET    ?action=stats            - Get spreadsheet statistics
+  GET    ?action=read&sheet=...   - Read sheet data
+  POST   (JSON body)              - Submit data:
+    - enrollment                  - Register new device
+    - contacts                    - Sync contacts
+    - callLogs                    - Sync call logs
+    - notifications               - Sync notifications
+    - syncAll                     - Batch sync all data
+
+
+================================================================================
+7. CONNECTION & NETWORK SETUP
+================================================================================
+
+7.1 APK CONNECTION TO SERVER
+
+The APK connects to the MDM server(s) via REST API over HTTP/HTTPS.
+
+Primary Server URL (build config):
+  BuildConfig.BASE_URL = "https://hmdm-server-qlw2.onrender.com"
+  
+Secondary Server URL (build config):
+  BuildConfig.SECONDARY_BASE_URL = "https://hmdmbackend.onrender.com"
+
+Device URL Structure:
+  {BASE_URL}/{project}/rest/...
+
+Project path is stored in SettingsHelper (default: "hmdm")
+
+7.2 CONNECTION FLOW
+  Step 1: APK starts → reads server URL from SharedPreferences
+  Step 2: If no URL configured, shows setup screen
+  Step 3: Device enrolls via POST to /rest/public/sync/configuration/{id}
+  Step 4: Server assigns device number/ID
+  Step 5: APK stores device ID and polls for configuration
+  Step 6: Configuration is applied (apps, policies, restrictions)
+
+7.3 NETWORK SECURITY
+  - Cleartext traffic permitted (for development/HTTP deployments)
+  - System and user CA certificates trusted
+  - Optional SSL certificate installation via server URL
+  - Request signature verification (configurable via BuildConfig)
+  - Unsafe OkHttp client available for self-signed certs
+
+7.4 FAILOVER
+  - Primary server failure → attempts secondary server
+  - MQTT push failure → falls back to HTTP long polling
+  - Config update failure → retry with exponential backoff
+  - Offline mode: cached config used until connectivity restored
+
+================================================================================
+8. WORKFLOW - APK INSTALL TO PRODUCTION
+================================================================================
+
+PHASE 1: FIRST TIME SETUP
+  Step 1: Install APK on device
+  Step 2: Launch app → InitialSetupActivity appears
+  Step 3: App checks for certificates (downloads if URLs provided)
+  Step 4: App requests Device Admin (if not already)
+  Step 5: Set as Device Owner (if possible) via QR/adb
+  Step 6: Enter Server URL (if not pre-configured)
+  Step 7: Enter Device ID (auto or manual)
+  Step 8: App fetches configuration from server
+  Step 9: Policies applied → apps installed → setup complete
+
+PHASE 2: NORMAL OPERATION
+  Step 1: App starts → MainActivity loads
+  Step 2: Configuration update check (periodic)
+  Step 3: Background services start:
+     - LocationService (GPS tracking)
+     - StatusControlService (policy enforcement)
+     - PushLongPollingService or MQTT (notifications)
+  Step 4: Device info sent every 15 minutes
+  Step 5: Remote logs uploaded as configured
+  Step 6: App updates checked and installed automatically
+
+PHASE 3: ADMIN OPERATIONS
+  - Remote reboot: trigger from server → APK confirms → device reboots
+  - Password reset: trigger from server → APK resets password
+  - App install/update: server config update → APK installs silently
+  - File push: server config update → APK downloads files
+  - Location request: on-demand location push
+
+================================================================================
+9. APK WORKFLOW (Internal)
+================================================================================
+
+APK STARTUP SEQUENCE:
+  │
+  ├── App.onCreate() 
+  │   └── Initialize Picasso (image cache)
+  │
+  ├── MainActivity.onCreate()
+  │   ├── Check crash loop protection
+  │   ├── Setup UI with DataBinding
+  │   ├── Check/prompt for permissions:
+  │   │   - Overlay permission
+  │   │   - Usage stats permission
+  │   │   - Accessibility service
+  │   │   - MIUI-specific permissions
+  │   │   - Notification permission (Android 13+)
+  │   │   - Location permission (Android 10+)
+  │   │   - Media/images permission (Android 13+)
+  │   └── Start Initializer.init()
+  │
+  ├── Initializer.init()
+  │   ├── Init Crashlytics (ProUtils)
+  │   ├── Setup SSL trust managers
+  │   ├── Lock safe boot
+  │   ├── Clear temp files
+  │   ├── Install certs from assets
+  │   └── Schedule workers (on connection)
+  │
+  ├── ConfigUpdater.updateConfig()
+  │   ├── GetServerConfigTask (fetch from server)
+  │   ├── updateRemoteLogConfig()
+  │   ├── checkServerMigration()
+  │   ├── setupPushService() → MQTT or LongPolling
+  │   ├── checkRemoteReboot() → if pending, reboot
+  │   ├── checkPasswordReset() → if pending, reset pw
+  │   ├── setDefaultLauncher() → make this default
+  │   ├── updatePolicies() → apply restrictions
+  │   ├── checkAndUpdateFiles() → download files
+  │   ├── loadAndInstallFiles() → install files
+  │   └── loadAndInstallApplications() → install/remove apps
+  │
+  ├── BACKGROUND LOOP:
+  │   ├── SendDeviceInfoWorker (every 15 min)
+  │   ├── LocationService (location tracking)
+  │   ├── StatusControlService (enforce BT/WiFi/GPS)
+  │   ├── Push notifications (MQTT or Polling)
+  │   └── RemoteLogger (log upload)
+  │
+  └── On Config Update (push notification received):
+      └── ConfigUpdater.forceConfigUpdate() → repeat pipeline
+
+
+================================================================================
+10. API ENDPOINTS REFERENCE
+================================================================================
+
+10.1 hmdm-server REST API Endpoints (APK → Server):
+
+  Config & Enrollment:
+    POST /{project}/rest/public/sync/configuration/{number}
+    GET  /{project}/rest/public/sync/configuration/{number}
+    POST /{project}/rest/public/sync/info (DeviceInfo)
+  
+  Push Notifications:
+    GET  /{project}/rest/notifications/device/{number}
+    GET  /{project}/rest/notification/polling/{number}
+  
+  Remote Logging:
+    GET  /{project}/rest/plugins/devicelog/log/rules/{number}
+    POST /{project}/rest/plugins/devicelog/log/list/{number}
+  
+  Device Info & Metrics:
+    PUT  /{project}/rest/plugins/deviceinfo/deviceinfo/public/{number}
+    GET  /{project}/rest/plugins/deviceinfo/deviceinfo-plugin-settings/device/{number}
+  
+  Location:
+    PUT  /{project}/rest/plugins/devicelocations/public/update/{number}
+  
+  Device Actions:
+    POST /{project}/rest/plugins/devicereset/public/reboot/{number}
+    POST /{project}/rest/plugins/devicereset/public/password/{number}
+
+10.2 hmdm-data-api REST API (External):
+
+  Auth:
+    POST /api/auth/login
+    GET  /api/auth/verify
+  
+  Data:
+    POST/GET /api/contacts
+    POST/GET /api/call-logs
+    POST/GET /api/notifications
+    POST/GET /api/device-info
+  
+  Dashboard:
+    GET /api/summary
+  
+  Health:
+    GET /health
+
+10.3 Google Apps Script (External):
+
+  GET ?action=stats
+  GET ?action=read&sheet=<name>
+  POST (JSON body with action field)
+
+
+================================================================================
+11. DATABASE SCHEMA
+================================================================================
+
+11.1 Local SQLite Database (hmdm.launcher.sqlite)
+
+  TABLE locations:
+    _id     INTEGER PRIMARY KEY AUTOINCREMENT
+    ts      INTEGER (timestamp)
+    lat     REAL (latitude)
+    lon     REAL (longitude)
+
+  TABLE logs:
+    _id       INTEGER PRIMARY KEY AUTOINCREMENT
+    ts        INTEGER (timestamp)
+    level     INTEGER (log level)
+    packageId TEXT
+    message   TEXT
+
+  TABLE log_config:
+    -- Remote log filtering rules
+
+  TABLE info_history:
+    _id                  INTEGER PRIMARY KEY AUTOINCREMENT
+    ts                   INTEGER
+    batteryLevel         INTEGER
+    batteryCharging      INTEGER
+    wifiState            TEXT
+    wifiRssi             TEXT
+    wifiSSID             TEXT
+    wifiSecurity         TEXT
+    wifiIP               TEXT
+    wifiTx               TEXT
+    wifiRx               TEXT
+    gpsState             TEXT
+    gpsProvider          TEXT
+    gpsLat               REAL
+    gpsLon               REAL
+    gpsAlt               REAL
+    gpsSpeed             REAL
+    gpsCourse            REAL
+    mobileState1/2       TEXT
+    mobileSignal1/2      TEXT
+    mobileCarrier1/2     TEXT
+    mobilePhone1/2       TEXT
+    mobileIMSI1/2        TEXT
+    mobileDataStatus1/2  TEXT
+    mobileIP1/2          TEXT
+    mobileSIMState1/2    TEXT
+    mobileTx1/2          TEXT
+    mobileRx1/2          TEXT
+    deviceMemoryTotal    INTEGER
+    deviceMemoryAvailable INTEGER
+    generalStatus        TEXT
+    generalIP            TEXT
+
+  TABLE remote_files:
+    -- Tracks remote file downloads and installation
+
+  TABLE downloads:
+    -- Download queue management
+
+11.2 PostgreSQL (hmdm-server):
+  Tables: devices, configurations, applications, users, 
+          customers, groups, files, settings, audit_logs, etc.
+
+11.3 Google Sheets (via Apps Script):
+  Sheets: enrollments, contacts, callLogs, notifications, media
+
+
+================================================================================
+12. GOOGLE SHEETS INTEGRATION
+================================================================================
+
+12.1 Purpose
+  Google Sheets serves as an alternative/supplementary data store for
+  device enrollments, contacts, call logs, and notifications.
+
+12.2 Sheets Structure
+  Spreadsheet ID: 1UhmOZUwhG_vBoQrdBCJkezlYAlIEnEGwxqMSUi49h2g
+  
+  Sheet: enrollments
+    Headers: deviceId, model, androidVersion, imei, serial, 
+             enrolledAt, lastSeen, status
+  
+  Sheet: contacts
+    Headers: deviceId, name, phone, email, syncedAt
+  
+  Sheet: callLogs
+    Headers: deviceId, number, type, duration, timestamp, syncedAt
+  
+  Sheet: notifications
+    Headers: deviceId, appName, title, text, timestamp, syncedAt
+
+12.3 Google Drive Integration
+  Media files (camera photos, audio recordings) are stored in:
+  Google Drive Folder ID: 1Jdw093-UfMo2nwOSa-lRNeTQfR4QfzVT
+
+================================================================================
+13. DEPLOYMENT CONFIGURATION
+================================================================================
+
+13.1 Render Deployments:
+  - hmdm-server:   https://hmdm-server-qlw2.onrender.com  (Java, port 8080)
+  - hmdmbackend:   https://hmdmbackend.onrender.com        (Java backend)
+  - hmdm-data-api: https://hmdm-data-apicallandcontact.onrender.com (Node.js)
+
+13.2 Database:
+  - PostgreSQL on Aiven Cloud: pg-7cd95c5-elenah-4365.l.aivencloud.com:20827
+  - Database: defaultdb
+  - User: avnadmin
+  - SSL: Required (sslmode=require)
+
+13.3 Docker Deployment:
+  - docker-compose.yaml defines: certbot, postgresql, hmdm (headwindmdm/hmdm:0.1.8)
+  - Ports: 443 (HTTPS), 31000 (internal)
+
+13.4 Admin Account:
+  - Username: Sravan
+  - Password: Sravan@123
+  - Email: Sravan@admin.com
+
+================================================================================
+14. SECURITY & PERMISSIONS
+================================================================================
+
+14.1 Android Permissions Required:
+  
+  CRITICAL:
+  - android.permission.BIND_DEVICE_ADMIN           - Device admin
+  - android.permission.MANAGE_DEVICE_POLICY_KNOX   - Samsung Knox management
+  - android.permission.MANAGE_DEVICE_POLICY_*      - DPC operations
+  - android.permission.SYSTEM_ALERT_WINDOW         - Draw overlays
+  - android.permission.REQUEST_INSTALL_PACKAGES    - Silent install
+  - android.permission.QUERY_ALL_PACKAGES          - List all apps
+  
+  LOCATION:
+  - android.permission.ACCESS_FINE_LOCATION        - GPS
+  - android.permission.ACCESS_COARSE_LOCATION      - Network location
+  - android.permission.ACCESS_BACKGROUND_LOCATION  - Background location
+  
+  PHONE:
+  - android.permission.READ_PHONE_STATE            - IMEI, serial, etc.
+  - android.permission.READ_PHONE_NUMBERS          - Phone number
+  - android.permission.CALL_PHONE                  - Make calls
+  
+  STORAGE:
+  - android.permission.READ_EXTERNAL_STORAGE       - Read storage
+  - android.permission.WRITE_EXTERNAL_STORAGE      - Write storage
+  - android.permission.READ_MEDIA_IMAGES           - Media access (A13+)
+  
+  OTHER:
+  - android.permission.ACCESS_NETWORK_STATE        - Network status
+  - android.permission.ACCESS_WIFI_STATE           - WiFi status
+  - android.permission.CHANGE_WIFI_STATE           - Change WiFi
+  - android.permission.BLUETOOTH                   - Bluetooth control
+  - android.permission.BLUETOOTH_CONNECT           - Bluetooth (A12+)
+  - android.permission.BLUETOOTH_ADMIN             - Bluetooth admin
+  - android.permission.READ_CONTACTS               - Read contacts
+  - android.permission.WRITE_CONTACTS              - Write contacts
+  - android.permission.RECEIVE_BOOT_COMPLETED      - Boot receiver
+  - android.permission.FOREGROUND_SERVICE          - Foreground service
+  - android.permission.FOREGROUND_SERVICE_LOCATION - Location service
+  - android.permission.POST_NOTIFICATIONS          - Notifications (A13+)
+  - android.permission.INTERNET                    - Network access
+  - android.permission.VIBRATE                     - Vibration
+  - android.permission.RECEIVE_SMS                 - SMS monitoring
+  - android.permission.READ_SMS                    - Read SMS
+  - android.permission.CAMERA                      - Camera access
+  - android.permission.RECORD_AUDIO                - Audio recording
+  - android.permission.GET_ACCOUNTS                - Account access
+  - android.permission.USE_CREDENTIALS             - Credential usage
+  - android.permission.MANAGE_ACCOUNTS             - Account management
+  - android.permission.AUTHENTICATE_ACCOUNTS       - Account auth
+  - android.permission.ACCESS_NOTIFICATION_POLICY  - Notification access
+  - android.permission.PACKAGE_USAGE_STATS         - Usage statistics
+  - android.permission.WRITE_SETTINGS              - System settings
+  - android.permission.READ_SYNC_SETTINGS          - Sync settings
+  - android.permission.WRITE_SYNC_SETTINGS         - Write sync
+  - android.permission.READ_SYNC_STATS             - Sync stats
+
+14.2 REMOVED FEATURES (Factory Reset & Erase Data):
+  - android.permission.MASTER_CLEAR            - Removed (was for factory reset)
+  - <wipe-data /> policy in device_admin.xml    - Removed
+  - resetButton and resetClicked in error UI   - Removed
+  - ConfirmDeviceResetTask.java                - Deleted
+  - factoryReset() method in Utils.java        - Removed
+  - factoryReset field in DeviceInfo.java       - Removed
+  - checkFactoryReset() in ConfigUpdater.java  - Removed
+  - confirmDeviceReset() endpoint in ServerService - Removed
+
+
+================================================================================
+15. TROUBLESHOOTING & FAQ
+================================================================================
+
+Q: APK won't connect to server?
+A: Check server URL is correct. Verify network connectivity.
+   Check SSL/TLS certificate. Try clearing app data.
+
+Q: Device not enrolling?
+A: Ensure server is running. Check device ID is unique.
+   Verify server project path matches APK configuration.
+
+Q: Apps not installing?
+A: Check app version compatibility. Verify storage permissions.
+   Check if unknown sources installation is allowed.
+
+Q: Location not reporting?
+A: Verify location permissions are granted (including background).
+   Check if GPS is enabled on device. Verify location service is running.
+
+Q: Push notifications not working?
+A: Check MQTT service or polling service is running.
+   Verify network connectivity. Check firewall settings.
+
+Q: Cannot set as Device Owner?
+A: Device must be factory reset first.
+   Use adb command: adb shell dpm set-device-owner com.hmdm.launcher/.AdminReceiver
+   Device must not have any Google accounts added yet.
+
+Q: Kiosk mode not working?
+A: Enable device admin. Restart the app.
+   Verify kiosk mode is enabled in server configuration.
+
+Q: How to exit kiosk mode?
+A: Enter admin password (if configured). Or use adb to uninstall app.
+   Default exit method: tap 5 times on version info in settings.
+
+================================================================================
+                    END OF DOCUMENTATION
+================================================================================

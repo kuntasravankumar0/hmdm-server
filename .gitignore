@@ -1,0 +1,76 @@
+# Built application files
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Generated folders
+bin/
+gen/
+out/
+build/
+*/build/
+.gradle/
+local.properties
+
+# maven target dir
+target/
+
+# IDE files
+.idea/
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git / worktrees
+.freebuff/
+
+# Environment files (contains sensitive credentials)
+render.env
+render-docker.env
+hmdmbackend-env.txt
+alldata.md
+allgit.md
+
+# Node modules
+node_modules/
+**/node_modules
+server/webtarget/node
+
+# Bower modules
+**/bower_components
+server/webtarget/lib
+
+# JS generated libs
+server/src/main/webapp/lib/
+
+# Logs
+logs/
+*.log
+*.hprof
+
+# Build artifacts
+*.war
+
+# Docker generated
+server/Dockerfile
+server/context.xml
+server/docker-compose.yml
+server/src/main/resources/docker/base/Dockerfile
+
+# Backup copies
+server/pom.xml.bak
+plugins/pom.xml.bak
+server/build.properties
+hmdm-server/server/build.properties
+
+# Secrets & sensitive docs (pushed protection will block)
+apkapi.txt
+
+# Other
+script.txt
+nul
+\n# Git filter-branch artifacts\n.git-rewrite/
